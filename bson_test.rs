@@ -26,7 +26,43 @@ fn write_bson(v: &Vec<u8>, name: &str) {
     }
 }
 
-fn main() {
+#[test]
+fn empty() {
+    let empty = BSON::new();
+    let serialized = empty.serialize();
+    show_bson(&serialized);
+    assert_eq!(serialized, vec!(0x05,0x00,0x00,0x00,0x00));
+}
+
+#[test]
+fn int32() {
+    let mut bson = BSON::new();
+    bson.insert("int32".to_string(), BSONInt(10));
+    let serialized = bson.serialize();
+    show_bson(&serialized);
+    assert_eq!(serialized, vec!(0x10,0x00,0x00,0x00,
+                                0x10,
+                                0x69,0x6e,0x74,0x33,0x32,0x00,
+                                0x0A,0x00,0x00,0x00,
+                                0x00));
+}
+
+#[test]
+fn string() {
+    let mut bson = BSON::new();
+    bson.insert("string".to_string(), BSONString("sample".to_string()));
+    let serialized = bson.serialize();
+    show_bson(&serialized);
+    assert_eq!(serialized, vec!(0x18,0x00,0x00,0x00,
+                                0x02,
+                                0x73,0x74,0x72,0x69,0x6e,0x67,0x00,
+                                0x07,0x00,0x00,0x00,
+                                0x73,0x61,0x6d,0x70,0x6c,0x65,0x00,
+                                0x00));
+}
+
+#[test]
+fn embedded() {
     let mut embed = BSON::new();
     embed.insert("this".to_string(), BSONString("is embedded".to_string()));
     embed.insert("negative".to_string(), BSONInt(-5));
@@ -35,10 +71,30 @@ fn main() {
     bson.insert("another".to_string(), BSONString("thing".to_string()));
     bson.insert("number".to_string(), BSONInt(10));
     bson.insert("embedded".to_string(), BSONObject(embed));
-    for v in bson.get_iter() {
-        println!("{}",v);
-    }
     let done = bson.serialize();
     show_bson(&done);
-    write_bson(&done, "test2.bson");
+    assert_eq!(done, vec!(0x68,0x00,0x00,0x00,
+                          0x02,
+                          0x61,0x6e,0x6f,0x74,0x68,0x65,0x72,0x00,
+                          0x06,0x00,0x00,0x00,
+                          0x74,0x68,0x69,0x6e,0x67,0x00,
+                          0x03,
+                          0x65,0x6d,0x62,0x65,0x64,0x64,0x65,0x64,0x00,
+                          0x29,0x00,0x00,0x00,
+                          0x10,
+                          0x6e,0x65,0x67,0x61,0x74,0x69,0x76,0x65,0x00,
+                          0xFB,0xFF,0xFF,0xFF,
+                          0x02,
+                          0x74,0x68,0x69,0x73,0x00,
+                          0x0c,0x00,0x00,0x00,
+                          0x69,0x73,0x20,0x65,0x6d,0x62,0x65,0x64,0x64,0x65,0x64,0x00,
+                          0x00,
+                          0x02,
+                          0x68,0x65,0x6c,0x6c,0x6f,0x00,
+                          0x06,0x00,0x00,0x00,
+                          0x77,0x6f,0x72,0x6c,0x64,0x00,
+                          0x10,
+                          0x6e,0x75,0x6d,0x62,0x65,0x72,0x00,
+                          0x0A,0x00,0x00,0x00,
+                          0x00));
 }
