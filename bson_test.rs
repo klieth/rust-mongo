@@ -3,6 +3,7 @@ use std::io::File;
 use std::collections::TreeMap;
 
 use bson::Bson;
+use bson::serialize::Decodable;
 
 mod bson;
 
@@ -28,32 +29,51 @@ fn write_bson(v: &Vec<u8>, name: &str) {
 
 #[test]
 fn serialize_empty() {
-    let empty_map = TreeMap::new();
-    let empty = bson::Object(empty_map);
-    let serialized = bson::encode(&empty);
+    let map = TreeMap::new();
+    let serialized = bson::encode(&bson::Object(map));
     show_bson(&serialized);
     assert_eq!(serialized, vec!(0x05,0x00,0x00,0x00,0x00));
 }
 /*
 #[test]
 fn deserialize_empty() {
-    let empty = TreeMap::new();
-    let built = Bson::deserialize(vec!(0x05,0x00,0x00,0x00,0x00));
-    assert_eq!(empty, built);
+    /*
+    let empty: TreeMap<String, bson::Bson> = TreeMap::new();
+    let built = bson::decode(vec!(0x05,0x00,0x00,0x00,0x00)).unwrap();
+    assert_eq!(bson::Object(empty), built);
+    */
 }
 */
 
 #[test]
 fn serialize_f64() {
     let mut map = TreeMap::new();
-    map.insert("int32".to_string(), bson::Float(10f64));
+    map.insert("f".to_string(), bson::Float(10f64));
     let serialized = bson::encode(&bson::Object(map));
     show_bson(&serialized);
-    assert_eq!(serialized, vec!(0x14,0x00,0x00,0x00,
+    assert_eq!(serialized, vec!(0x10,0x00,0x00,0x00,
                                 0x01,
-                                0x69,0x6e,0x74,0x33,0x32,0x00,
+                                0x66,0x00,
                                 0x00,0x00,0x00,0x00,0x00,0x00,0x24,0x40,
                                 0x00));
+}
+struct FloatStruct {
+    f: f64
+}
+impl bson::serialize::Decodable<bson::Decoder, bson::DecoderError> for FloatStruct {
+    fn decode(d: &mut Decoder) -> Result<FloatStruct, io::IoError> {
+        let map = try!(d.read_map());
+        // TODO - FloatStruct { f: map.get("f") }
+    }
+}
+#[test]
+fn deserialize_f64() {
+    let v = vec!(0x10,0x00,0x00,0x00,
+                 0x01,
+                 0x66,0x00,
+                 0x00,0x00,0x00,0x00,0x00,0x00,0x24,0x40,
+                 0x00);
+    let obj: FloatStruct = bson::decode(v).unwrap();
 }
 /*
 #[test]
@@ -98,6 +118,23 @@ fn deserialize_string() {
 */
 
 #[test]
+fn serialize_basic_mongo_document() {
+    let mut doc = TreeMap::new();
+    doc.insert("_id".to_string(), bson::ObjectId(vec!(0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B)));
+    doc.insert("data".to_string(), bson::String("something".to_string()));
+    let serialized = bson::encode(&bson::Object(doc));
+    assert_eq!(serialized, vec!(0x2A,0x00,0x00,0x00,
+                                0x07,
+                                0x5f,0x69,0x64,0x00,
+                                0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,
+                                0x02,
+                                0x64,0x61,0x74,0x61,0x00,
+                                0x0A,0x00,0x00,0x00,
+                                0x73,0x6f,0x6d,0x65,0x74,0x68,0x69,0x6e,0x67,0x00,
+                                0x00));
+}
+
+#[test]
 fn serialize_multiple() {
     let mut map = TreeMap::new();
     map.insert("n".to_string(), bson::Float(1f64));
@@ -114,6 +151,7 @@ fn serialize_multiple() {
                                 0x00));
 }
 
+#[test]
 fn serialize_small_embedded() {
     let mut embed = TreeMap::new();
     embed.insert("n".to_string(), bson::Float(1f64));
@@ -136,30 +174,26 @@ fn serialize_small_embedded() {
                                 0x00));
 }
 
-/*
 #[test]
 fn serialize_embedded() {
     let mut embed = TreeMap::new();
     embed.insert("this".to_string(), bson::String("is embedded".to_string()));
-    embed.insert("negative".to_string(), bson::Float(-5f64));
     let mut map = TreeMap::new();
     map.insert("hello".to_string(), bson::String("world".to_string()));
     map.insert("another".to_string(), bson::String("thing".to_string()));
-    map.insert("number".to_string(), bson::Float(10f64));
+    map.insert("number".to_string(), bson::Float(1f64));
     map.insert("embedded".to_string(), bson::Object(embed));
     let done = bson::encode(&bson::Object(map));
     show_bson(&done);
-    assert_eq!(done, vec!(0x68,0x00,0x00,0x00,
+    write_bson(&done, "test.bson");
+    assert_eq!(done, vec!(0x5e,0x00,0x00,0x00,
                           0x02,
                           0x61,0x6e,0x6f,0x74,0x68,0x65,0x72,0x00,
                           0x06,0x00,0x00,0x00,
                           0x74,0x68,0x69,0x6e,0x67,0x00,
                           0x03,
                           0x65,0x6d,0x62,0x65,0x64,0x64,0x65,0x64,0x00,
-                          0x29,0x00,0x00,0x00,
-                          0x10,
-                          0x6e,0x65,0x67,0x61,0x74,0x69,0x76,0x65,0x00,
-                          0xFB,0xFF,0xFF,0xFF,
+                          0x1b,0x00,0x00,0x00,
                           0x02,
                           0x74,0x68,0x69,0x73,0x00,
                           0x0c,0x00,0x00,0x00,
@@ -169,12 +203,11 @@ fn serialize_embedded() {
                           0x68,0x65,0x6c,0x6c,0x6f,0x00,
                           0x06,0x00,0x00,0x00,
                           0x77,0x6f,0x72,0x6c,0x64,0x00,
-                          0x10,
+                          0x01,
                           0x6e,0x75,0x6d,0x62,0x65,0x72,0x00,
-                          0x0A,0x00,0x00,0x00,
+                          0x00,0x00,0x00,0x00,0x00,0x00,0xf0,0x3f,
                           0x00));
 }
-*/
 
 /*
 #[test]

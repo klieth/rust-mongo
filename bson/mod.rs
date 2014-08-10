@@ -1,12 +1,12 @@
 
-extern crate serialize;
-
-use std::io;
-use std::mem;
+use std::{io,mem,fmt};
 use std::collections::TreeMap;
+
+mod serialize;
 
 #[deriving(PartialEq)]
 pub enum Bson {
+    ObjectId(Id),
     Float(f64),
     String(String),
     Boolean(bool),
@@ -17,12 +17,21 @@ pub enum Bson {
 
 pub type List = Vec<Bson>;
 pub type Object = TreeMap<String, Bson>;
+pub type Id = Vec<u8>;
 
 pub enum ErrorCode {
     InvalidSyntax,
     // TODO - add the rest
 }
+impl fmt::Show for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", match *self {
+            InvalidSyntax => "Invalid syntax",
+        })
+    }
+}
 
+#[deriving(Show)]
 pub enum ParserError {
     /// msg, line, col
     SyntaxError(ErrorCode, uint, uint),
@@ -31,12 +40,13 @@ pub enum ParserError {
 
 pub type BuilderError = ParserError;
 
+#[deriving(Show)]
 pub enum DecoderError {
     ParseError(ParserError),
     // TODO - add the rest
 }
 
-pub type EncodeResult = io::IoResult<()>;
+pub type EncodeResult = io::IoResult<Vec<u8>>;
 pub type DecodeResult<T> = Result<T, DecoderError>;
 
 pub fn decode<T: serialize::Decodable<Decoder, DecoderError>>(v: Vec<u8>) -> DecodeResult<T> {
@@ -49,8 +59,7 @@ pub fn decode<T: serialize::Decodable<Decoder, DecoderError>>(v: Vec<u8>) -> Dec
 }
 
 pub fn encode<'a, T: serialize::Encodable<Encoder<'a>, io::IoError>>(object: &T) -> Vec<u8> {
-    let buff = Encoder::buffer_encode(object);
-    buff
+    Encoder::buffer_encode(object)
 }
 
 pub struct Encoder<'a> {
@@ -64,220 +73,85 @@ impl<'a> Encoder<'a> {
     pub fn buffer_encode<T: serialize::Encodable<Encoder<'a>, io::IoError>>(object: &T) -> Vec<u8> {
         let mut m = io::MemWriter::new();
         unsafe {
-            object.encode(mem::transmute(&mut Encoder::new(&mut m)));
+            let mut buf = object.encode(mem::transmute(&mut Encoder::new(&mut m))).unwrap();
+            let _ = buf.shift(); // Take of the leading 'object' type
+            m.write(buf.as_slice());
         }
         m.unwrap()
     }
 }
 impl<'a> serialize::Encoder<io::IoError> for Encoder<'a> {
-    fn emit_nil(&mut self) -> EncodeResult {
-        println!("emit nil");
+    fn build_nil(&mut self) -> EncodeResult {
         unimplemented!();
     }
-    fn emit_u64 (&mut self, v: u64) -> EncodeResult {
-        println!("emit u64");
+    fn build_bool(&mut self, v: bool) -> EncodeResult {
         unimplemented!();
     }
-    fn emit_u32 (&mut self, v: u32) -> EncodeResult {
-        println!("emit u32");
-        unimplemented!();
-    }
-    fn emit_u16 (&mut self, v: u16) -> EncodeResult {
-        println!("emit u16");
-        unimplemented!();
-    }
-    fn emit_u8  (&mut self, v: u8) -> EncodeResult {
-        println!("emit u8");
-        unimplemented!();
-    }
-    fn emit_uint(&mut self, v: uint) -> EncodeResult {
-        println!("emit uint");
-        unimplemented!();
-    }
-
-    fn emit_i64 (&mut self, v: i64) -> EncodeResult {
-        println!("emit i64");
-        unimplemented!();
-    }
-    fn emit_i32 (&mut self, v: i32) -> EncodeResult {
-        println!("emit i32");
-        unimplemented!();
-    }
-    fn emit_i16 (&mut self, v: i16) -> EncodeResult {
-        println!("emit i16");
-        unimplemented!();
-    }
-    fn emit_i8  (&mut self, v: i8) -> EncodeResult {
-        println!("emit i8");
-        unimplemented!();
-    }
-    fn emit_int (&mut self, v: int) -> EncodeResult {
-        println!("emit int");
-        unimplemented!();
-    }
-    
-    fn emit_bool(&mut self, v: bool) -> EncodeResult {
-        println!("emit bool");
-        unimplemented!();
-    }
-
-    fn emit_f64(&mut self, v: f64) -> EncodeResult {
-        println!("emit f64");
-        let mut t = io::MemWriter::new();
-        try!(t.write_u8(0x01));
-        self.stack.push(t.unwrap());
-        // push an empty vec to trick the 'len'
-        self.stack.push(Vec::new());
+    fn build_f64(&mut self, v: f64) -> EncodeResult {
         let mut w = io::MemWriter::new();
+        try!(w.write_u8(0x01));
         try!(w.write_le_f64(v));
-        self.stack.push(w.unwrap());
-        Ok(())
+        Ok(w.unwrap())
     }
-    fn emit_f32(&mut self, v: f32) -> EncodeResult {
-        println!("emit f32");
-        unimplemented!();
-    }
-
-    fn emit_char(&mut self, v: char) -> EncodeResult {
-        println!("emit char");
-        unimplemented!();
-    }
-    fn emit_str(&mut self, v: &str) -> EncodeResult {
-        println!("emit str");
-        let mut t = io::MemWriter::new();
-        try!(t.write_u8(0x02));
-        self.stack.push(t.unwrap());
-        // push the length
-        let mut l = io::MemWriter::new();
-        l.write_le_u32(v.len() as u32 + 1);
-        self.stack.push(l.unwrap());
+    fn build_str(&mut self, v: &str) -> EncodeResult {
         let mut w = io::MemWriter::new();
-        try!(w.write_str(v));
-        try!(w.write_u8(0x00));
-        self.stack.push(w.unwrap());
-        Ok(())
-    }
-
-    fn emit_enum(&mut self, name: &str, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit enum");
-        unimplemented!();
-    }
-    fn emit_enum_variant(&mut self, name: &str, id: uint, cnt: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit enum variant");
-        unimplemented!();
-    }
-    fn emit_enum_variant_arg(&mut self, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit enum variant arg");
-        unimplemented!();
-    }
-    fn emit_enum_struct_variant(&mut self, name: &str, id: uint, cnt: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit enum struct variant");
-        unimplemented!();
-    }
-    fn emit_enum_struct_variant_field(&mut self, name: &str, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit enum struct variant field");
-        unimplemented!();
-    }
-
-    fn emit_struct(&mut self, name: &str, len: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit struct");
-        unimplemented!();
-    }
-    fn emit_struct_field(&mut self, name: &str, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit struct field");
-        unimplemented!();
-    }
-
-    fn emit_tuple(&mut self, len: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit tuple");
-        unimplemented!();
-    }
-    fn emit_tuple_arg(&mut self, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit tuple arg");
-        unimplemented!();
-    }
-    fn emit_tuple_struct(&mut self, name: &str, len: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit tuple struct");
-        unimplemented!();
-    }
-    fn emit_tuple_struct_arg(&mut self, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit tuple struct arg");
-        unimplemented!();
-    }
-
-    fn emit_option(&mut self, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit option");
-        unimplemented!();
-    }
-    fn emit_option_none(&mut self) -> EncodeResult {
-        println!("emit option none");
-        unimplemented!();
-    }
-    fn emit_option_some(&mut self, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit option some");
-        unimplemented!();
-    }
-
-    fn emit_seq(&mut self, len: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit seq");
-        unimplemented!();
-    }
-    fn emit_seq_elt(&mut self, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit seq elt");
-        unimplemented!();
-    }
-
-    fn emit_map(&mut self, len: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit map");
-        try!(f(self));
-        println!("items: {} ", self.stack.len());
-        let mut w = io::MemWriter::new();
-        for item in self.stack.iter() {
-            w.write(item.as_slice());
+        try!(w.write_u8(0x02));
+        for c in v.chars() {
+            try!(w.write_char(c));
         }
-        let v = w.unwrap();
-        println!("Final buffer: {}", v);
-        try!(self.writer.write_le_u32(v.len() as u32 + 5));
-        try!(self.writer.write(v.as_slice()));
-        self.writer.write_u8(0x00)
+        try!(w.write_u8(0x00));
+        Ok(w.unwrap())
     }
-    fn emit_map_elt_key(&mut self, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit map elt key");
-        f(self)
+    fn build_seq(&mut self, len: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
+        unimplemented!();
     }
-    fn emit_map_elt_val(&mut self, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
-        println!("emit map elt val");
-        try!(f(self));
-        let val = self.stack.pop().unwrap();
-        println!("val: {}", val);
-        let len = self.stack.pop().unwrap();
-        println!("len: {}", len);
-        let t = self.stack.pop().unwrap();
-        println!("t: {}", t);
-        let key = self.stack.pop().unwrap();
-        println!("key: {}", key);
-        let _ = self.stack.pop();
-        let _ = self.stack.pop();
+    fn build_seq_elt(&mut self, idx: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
+        unimplemented!();
+    }
+    fn build_map(&mut self, len: uint, f: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
         let mut w = io::MemWriter::new();
-        try!(w.write(t.as_slice()));
-        try!(w.write(key.as_slice()));
-        try!(w.write(len.as_slice()));
-        try!(w.write(val.as_slice()));
-        self.stack.push(w.unwrap());
-        Ok(())
+        try!(w.write_u8(0x03));
+        let buf = try!(f(self));
+        try!(w.write_le_u32(buf.len() as u32 + 5));
+        try!(w.write(buf.as_slice()));
+        try!(w.write_u8(0x00));
+        Ok(w.unwrap())
+    }
+    fn build_map_item(&mut self, idx: uint, key: |&mut Encoder<'a>| -> EncodeResult, val: |&mut Encoder<'a>| -> EncodeResult) -> EncodeResult {
+        let mut w = io::MemWriter::new();
+        let mut k = try!(key(self));
+        let _ = k.shift();
+        let mut v = try!(val(self));
+        let t = v.shift().unwrap();
+        try!(w.write_u8(t));
+        try!(w.write(k.as_slice()));
+        match t {
+            0x02 => try!(w.write_le_u32(v.len() as u32)),
+            _ => ()
+        }
+        try!(w.write(v.as_slice()));
+        println!("{} {} {}", k, v, t);
+        Ok(w.unwrap())
     }
 }
 
-// line 835
 impl<E: serialize::Encoder<S>, S> serialize::Encodable<E, S> for Bson {
-    fn encode(&self, e: &mut E) -> Result<(), S> {
+    fn encode(&self, e: &mut E) -> Result<Vec<u8>, S> {
         match *self {
+            ObjectId(ref v) => {
+                e.build_custom(|e| {
+                    let mut w = io::MemWriter::new();
+                    w.write_u8(0x07).unwrap();
+                    w.write(v.as_slice()).unwrap();
+                    Ok(w.unwrap())
+                })
+            },
             Float(v)      => v.encode(e),
             String(ref v) => v.encode(e),
             Boolean(v)    => v.encode(e),
             List(ref v)   => v.encode(e),
             Object(ref v) => v.encode(e),
-            Null => { e.emit_nil() }
+            Null => { e.build_nil() }
         }
     }
 }
@@ -297,83 +171,19 @@ impl Decoder {
     }
 }
 impl serialize::Decoder<DecoderError> for Decoder {
-    fn read_nil(&mut self) -> DecodeResult<()> {
+    fn read_bool(&mut self) -> DecodeResult<bool> {
         unimplemented!();
     }
-    fn read_u64 (&mut self) -> DecodeResult<u64> { unimplemented!(); }
-    fn read_u32 (&mut self) -> DecodeResult<u32> { unimplemented!(); }
-    fn read_u16 (&mut self) -> DecodeResult<u16> { unimplemented!(); }
-    fn read_u8  (&mut self) -> DecodeResult<u8> { unimplemented!(); }
-    fn read_uint(&mut self) -> DecodeResult<uint> { unimplemented!(); }
-
-    fn read_i64 (&mut self) -> DecodeResult<i64> { unimplemented!(); }
-    fn read_i32 (&mut self) -> DecodeResult<i32> { unimplemented!(); }
-    fn read_i16 (&mut self) -> DecodeResult<i16> { unimplemented!(); }
-    fn read_i8  (&mut self) -> DecodeResult<i8> { unimplemented!(); }
-    fn read_int (&mut self) -> DecodeResult<int> { unimplemented!(); }
-    
-    fn read_bool(&mut self) -> DecodeResult<bool> { unimplemented!(); }
-
-    fn read_f64(&mut self) -> DecodeResult<f64> { unimplemented!(); }
-    fn read_f32(&mut self) -> DecodeResult<f32> { unimplemented!(); }
-
-    fn read_char(&mut self) -> DecodeResult<char> { unimplemented!(); }
-    fn read_str(&mut self) -> DecodeResult<String> { unimplemented!(); }
-
-    fn read_enum<T>(&mut self, name: &str, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_f64(&mut self) -> DecodeResult<f64> {
         unimplemented!();
     }
-    fn read_enum_variant<T>(&mut self, names: &[&str], f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_str(&mut self) -> DecodeResult<String> {
         unimplemented!();
     }
-    fn read_enum_variant_arg<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-    fn read_enum_struct_variant<T>(&mut self, names: &[&str], f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-    fn read_enum_struct_variant_field<T>(&mut self, name: &str, idx: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-
-    fn read_struct<T>(&mut self, name: &str, len: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-    fn read_struct_field<T>(&mut self, name: &str, idx: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-
-    fn read_tuple<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-    fn read_tuple_arg<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-    fn read_tuple_struct<T>(&mut self, name: &str, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-    fn read_tuple_struct_arg<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-
-    fn read_option<T>(&mut self, f: |&mut Decoder, bool| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-
-    fn read_seq<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-    fn read_seq_elt<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-
     fn read_map<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
         unimplemented!();
     }
-    fn read_map_elt_key<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
-        unimplemented!();
-    }
-    fn read_map_elt_val<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_map_item<T1,T2>(&mut self, idx: uint, key: |&mut Decoder| -> DecodeResult<T1>, val: |&mut Decoder| -> DecodeResult<T2>) -> DecodeResult<(T1,T2)> {
         unimplemented!();
     }
 }
